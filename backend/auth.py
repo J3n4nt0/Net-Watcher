@@ -1,5 +1,5 @@
 """
-NetWatch - Authentication.
+NetWatcher - Authentication.
 Passwords are hashed with PBKDF2-HMAC-SHA256 (stdlib only, no extra deps).
 Sessions are opaque random tokens stored server-side with an expiry, passed
 back by the client as a Bearer token (Authorization header).

@@ -1,5 +1,5 @@
 """
-NetWatch - Device config backup.
+NetWatcher - Device config backup.
 Pulls the running config over SSH (paramiko) and stores it versioned in
 SQLite, hashed so we can detect drift between backups without diffing
 full text every time.

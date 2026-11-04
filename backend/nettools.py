@@ -1,5 +1,5 @@
 """
-NetWatch - Network diagnostic toolbox.
+NetWatcher - Network diagnostic toolbox.
 Pure stdlib + subprocess calls out to system ping/traceroute so this runs
 on any Linux box without extra network-capture privileges.
 """

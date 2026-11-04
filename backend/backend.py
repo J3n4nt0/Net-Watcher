@@ -1,5 +1,5 @@
 """
-NetWatch - Network Sysadmin Toolkit
+NetWatcher - Network Sysadmin Toolkit
 Backend API: authentication, device inventory, live monitoring, network
 diagnostic tools, and config backup/versioning for network gear.
 
@@ -21,7 +21,7 @@ import nettools
 import scheduler
 from database import init_db, db_cursor
 
-app = FastAPI(title="NetWatch API", version="2.1")
+app = FastAPI(title="NetWatcher API", version="2.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -94,7 +94,7 @@ class RunCommandsRequest(BaseModel):
 # --------------------------------------------------------------------- Meta
 @app.get("/")
 def home():
-    return {"status": "NetWatch API running", "code": 200}
+    return {"status": "NetWatcher API running", "code": 200}
 
 
 # --------------------------------------------------------------------- Auth

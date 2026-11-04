@@ -1,5 +1,5 @@
 """
-NetWatch - Auto-sweep scheduler.
+NetWatcher - Auto-sweep scheduler.
 
 Runs a ping sweep of every registered device on a fixed interval, in a
 background thread, so the dashboard reflects live status without the user

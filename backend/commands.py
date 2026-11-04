@@ -1,10 +1,10 @@
 """
-NetWatch - Device command execution ("push config" / run CLI on a device).
+NetWatcher - Device command execution ("push config" / run CLI on a device).
 
 Sends one or more CLI lines to a network device over SSH, into the
 DEVICE's own command interpreter (Cisco IOS exec/config mode, Junos CLI,
 RouterOS console, a shell on a Linux host, etc). This module never touches
-the NetWatch backend's own operating system — there is no subprocess,
+the NetWatcher backend's own operating system — there is no subprocess,
 os.system, or eval() of any kind here, only paramiko's exec_command /
 invoke_shell talking to the remote device.
 
@@ -65,7 +65,7 @@ def run_commands(host: str, username: str, password: str, commands: list[str],
         return {
             "ok": False,
             "error": f"Refused: command(s) look destructive and were blocked: {lines}. "
-                     f"If this is intentional, run it directly on the device console instead of through NetWatch.",
+                     f"If this is intentional, run it directly on the device console instead of through NetWatcher.",
         }
 
     client = paramiko.SSHClient()

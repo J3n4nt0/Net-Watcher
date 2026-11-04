@@ -1,5 +1,5 @@
 """
-NetWatch - SQLite database layer.
+NetWatcher - SQLite database layer.
 Handles schema creation and gives every module a single place to get a connection.
 """
 import sqlite3
