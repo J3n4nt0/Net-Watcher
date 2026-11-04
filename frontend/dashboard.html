@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetWatch — Dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <h1>Monitoring Dashboard</h1>
+    <div class="subtitle">Live status of your network · <span id="autoStatus" style="color: var(--accent);">auto-refreshing</span></div>
+
+    <div class="grid grid-4" id="stats"></div>
+
+    <h2>Known Devices</h2>
+    <div class="card">
+      <div class="table-wrap">
+        <table id="devicesTable">
+          <thead>
+            <tr><th>Name</th><th>IP</th><th>Type</th><th>Status</th><th>Latency</th><th>Last Checked</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="status-text" id="devicesEmpty" style="display:none;">
+        No devices yet — add some on the Devices page.
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    requireAuth();
+    renderNav("dashboard.html");
+
+    async function loadSummary() {
+      try {
+        const data = await api("/monitor/summary");
+        const devices = data.devices;
+
+        const up = devices.filter(d => d.last_status === "UP").length;
+        const down = devices.filter(d => d.last_status === "DOWN").length;
+        const unknown = devices.filter(d => d.last_status === "UNKNOWN").length;
+
+        document.getElementById("stats").innerHTML = `
+          <div class="card stat-card"><div class="stat-value">${devices.length}</div><div class="stat-label">Total devices</div></div>
+          <div class="card stat-card stat-up"><div class="stat-value">${up}</div><div class="stat-label">Online</div></div>
+          <div class="card stat-card stat-down"><div class="stat-value">${down}</div><div class="stat-label">Offline</div></div>
+          <div class="card stat-card"><div class="stat-value">${unknown}</div><div class="stat-label">Unknown</div></div>
+        `;
+
+        const tbody = document.querySelector("#devicesTable tbody");
+        tbody.innerHTML = "";
+        document.getElementById("devicesEmpty").style.display = devices.length ? "none" : "block";
+
+        devices.forEach(d => {
+          const badgeClass = d.last_status === "UP" ? "badge-up" : d.last_status === "DOWN" ? "badge-down" : "badge-unknown";
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${d.name}</td>
+            <td><code>${d.ip}</code></td>
+            <td>${d.device_type}</td>
+            <td><span class="badge ${badgeClass}">${d.last_status}</span></td>
+            <td>${d.last_latency_ms != null ? d.last_latency_ms + " ms" : "—"}</td>
+            <td>${timeAgo(d.last_checked)}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        document.getElementById("autoStatus").innerText = `checked as of ${new Date().toLocaleTimeString()}`;
+      } catch (err) {
+        document.getElementById("stats").innerHTML = `<div class="error-text">Failed to load: ${err.message}</div>`;
+      }
+    }
+
+    loadSummary();
+    setInterval(loadSummary, 15000); // the backend auto-sweeps every 60s server-side; this just refreshes the view
+  </script>
+</body>
+</html>

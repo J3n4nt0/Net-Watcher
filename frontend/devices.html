@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetWatch — Devices</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <h1>Device Inventory</h1>
+    <div class="subtitle">Add, edit, and manage the devices NetWatch tracks</div>
+
+    <div style="margin-bottom:18px;">
+      <button onclick="openModal()">+ Add Device</button>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table id="devicesTable">
+          <thead>
+            <tr><th>Name</th><th>IP</th><th>Type</th><th>Vendor</th><th>SSH Port</th><th>Tags</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="status-text" id="empty" style="display:none;">No devices yet. Add your first one above.</div>
+    </div>
+  </div>
+
+  <!-- Add/Edit modal -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <h3 id="modalTitle">Add Device</h3>
+      <input type="hidden" id="deviceId">
+
+      <div class="field">
+        <label>Name</label>
+        <input id="f_name" placeholder="core-switch-01">
+      </div>
+      <div class="field">
+        <label>IP Address</label>
+        <input id="f_ip" placeholder="192.168.1.1">
+      </div>
+      <div class="field">
+        <label>Device Type</label>
+        <select id="f_type">
+          <option value="switch">Switch</option>
+          <option value="router">Router</option>
+          <option value="firewall">Firewall</option>
+          <option value="server">Server</option>
+          <option value="access_point">Access Point</option>
+          <option value="generic" selected>Generic</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Vendor / Platform (used for config backup commands)</label>
+        <select id="f_vendor">
+          <option value="cisco_ios">Cisco IOS</option>
+          <option value="cisco_nxos">Cisco NX-OS</option>
+          <option value="juniper">Juniper (Junos)</option>
+          <option value="mikrotik">MikroTik RouterOS</option>
+          <option value="linux">Linux host</option>
+          <option value="generic" selected>Generic</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>SSH Port</label>
+        <input id="f_port" type="number" value="22">
+      </div>
+      <div class="field">
+        <label>Tags (comma-separated)</label>
+        <input id="f_tags" placeholder="core, floor-2, prod">
+      </div>
+      <div class="field">
+        <label>Notes</label>
+        <textarea id="f_notes" rows="2" placeholder="Location, contact, etc."></textarea>
+      </div>
+
+      <div class="error-text" id="modalError"></div>
+      <div class="modal-actions">
+        <button class="secondary" onclick="closeModal()">Cancel</button>
+        <button onclick="saveDevice()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Run command modal -->
+  <div class="modal-backdrop" id="execBackdrop">
+    <div class="modal" style="width:520px;">
+      <h3>Run Commands on <span id="execDeviceName"></span></h3>
+      <input type="hidden" id="execDeviceId">
+
+      <div class="status-text" style="background:rgba(245,158,11,0.1); color:var(--warn); padding:10px 12px; border-radius:7px; margin-bottom:14px;">
+        This sends the commands below directly to the device's CLI over SSH. Double-check them — NetWatch blocks a few obviously destructive commands (erase, reload, format) but cannot validate arbitrary CLI syntax for every vendor.
+      </div>
+
+      <div class="field">
+        <label>SSH Username</label>
+        <input id="exec_user" placeholder="admin">
+      </div>
+      <div class="field">
+        <label>SSH Password</label>
+        <input id="exec_pass" type="password" placeholder="••••••••">
+      </div>
+      <div class="field">
+        <label>Commands (one per line, sent in order)</label>
+        <textarea id="exec_commands" rows="5" placeholder="interface GigabitEthernet0/1&#10;description Uplink to core&#10;no shutdown"></textarea>
+      </div>
+      <div class="field" style="display:flex; align-items:center; gap:8px; flex-direction:row;">
+        <input type="checkbox" id="exec_config_mode" style="width:auto;">
+        <label style="margin:0;" for="exec_config_mode">Wrap in configure-terminal / end (Cisco-style devices)</label>
+      </div>
+
+      <div class="error-text" id="execError"></div>
+      <pre class="output" id="execOutput" style="display:none;"></pre>
+
+      <div class="modal-actions">
+        <button class="secondary" onclick="closeExecModal()">Cancel</button>
+        <button onclick="confirmAndRun()" id="execRunBtn">Review &amp; Run</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    const session = requireAuth();
+    renderNav("devices.html");
+
+    async function loadDevices() {
+      try {
+        const devices = await api("/devices");
+        const tbody = document.querySelector("#devicesTable tbody");
+        tbody.innerHTML = "";
+        document.getElementById("empty").style.display = devices.length ? "none" : "block";
+
+        devices.forEach(d => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${d.name}</td>
+            <td><code>${d.ip}</code></td>
+            <td>${d.device_type}</td>
+            <td>${d.vendor}</td>
+            <td>${d.ssh_port}</td>
+            <td>${d.tags || "—"}</td>
+            <td style="text-align:right; white-space:nowrap;">
+              <button class="secondary" style="padding:6px 10px;" onclick='editDevice(${JSON.stringify(d)})'>Edit</button>
+              ${session.role === "admin" ? `<button class="secondary" style="padding:6px 10px;" onclick='openExecModal(${JSON.stringify(d)})'>Configure</button>` : ""}
+              ${session.role === "admin" ? `<button class="danger" style="padding:6px 10px;" onclick="deleteDevice(${d.id}, '${d.name}')">Delete</button>` : ""}
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        document.querySelector("#devicesTable tbody").innerHTML =
+          `<tr><td colspan="7" class="error-text">Failed to load: ${err.message}</td></tr>`;
+      }
+    }
+
+    function openModal() {
+      document.getElementById("modalTitle").innerText = "Add Device";
+      document.getElementById("deviceId").value = "";
+      ["f_name","f_ip","f_tags","f_notes"].forEach(id => document.getElementById(id).value = "");
+      document.getElementById("f_port").value = 22;
+      document.getElementById("f_type").value = "generic";
+      document.getElementById("f_vendor").value = "generic";
+      document.getElementById("modalError").innerText = "";
+      document.getElementById("modalBackdrop").classList.add("open");
+    }
+
+    function editDevice(d) {
+      document.getElementById("modalTitle").innerText = "Edit Device";
+      document.getElementById("deviceId").value = d.id;
+      document.getElementById("f_name").value = d.name;
+      document.getElementById("f_ip").value = d.ip;
+      document.getElementById("f_type").value = d.device_type;
+      document.getElementById("f_vendor").value = d.vendor;
+      document.getElementById("f_port").value = d.ssh_port;
+      document.getElementById("f_tags").value = d.tags;
+      document.getElementById("f_notes").value = d.notes;
+      document.getElementById("modalError").innerText = "";
+      document.getElementById("modalBackdrop").classList.add("open");
+    }
+
+    function closeModal() {
+      document.getElementById("modalBackdrop").classList.remove("open");
+    }
+
+    async function saveDevice() {
+      const id = document.getElementById("deviceId").value;
+      const payload = {
+        name: document.getElementById("f_name").value.trim(),
+        ip: document.getElementById("f_ip").value.trim(),
+        device_type: document.getElementById("f_type").value,
+        vendor: document.getElementById("f_vendor").value,
+        ssh_port: parseInt(document.getElementById("f_port").value) || 22,
+        tags: document.getElementById("f_tags").value.trim(),
+        notes: document.getElementById("f_notes").value.trim(),
+      };
+
+      if (!payload.name || !payload.ip) {
+        document.getElementById("modalError").innerText = "Name and IP are required.";
+        return;
+      }
+
+      try {
+        if (id) {
+          await api(`/devices/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+        } else {
+          await api("/devices", { method: "POST", body: JSON.stringify(payload) });
+        }
+        closeModal();
+        loadDevices();
+      } catch (err) {
+        document.getElementById("modalError").innerText = err.message;
+      }
+    }
+
+    async function deleteDevice(id, name) {
+      if (!confirm(`Delete device "${name}"? This also removes its config backups.`)) return;
+      try {
+        await api(`/devices/${id}`, { method: "DELETE" });
+        loadDevices();
+      } catch (err) {
+        alert("Failed to delete: " + err.message);
+      }
+    }
+
+    function openExecModal(device) {
+      document.getElementById("execDeviceId").value = device.id;
+      document.getElementById("execDeviceName").innerText = `${device.name} (${device.ip})`;
+      document.getElementById("exec_user").value = "";
+      document.getElementById("exec_pass").value = "";
+      document.getElementById("exec_commands").value = "";
+      document.getElementById("exec_config_mode").checked = false;
+      document.getElementById("execError").innerText = "";
+      document.getElementById("execOutput").style.display = "none";
+      document.getElementById("execBackdrop").classList.add("open");
+    }
+
+    function closeExecModal() {
+      document.getElementById("execBackdrop").classList.remove("open");
+    }
+
+    async function confirmAndRun() {
+      const deviceId = parseInt(document.getElementById("execDeviceId").value);
+      const deviceName = document.getElementById("execDeviceName").innerText;
+      const username = document.getElementById("exec_user").value.trim();
+      const password = document.getElementById("exec_pass").value;
+      const rawCommands = document.getElementById("exec_commands").value;
+      const enterConfigMode = document.getElementById("exec_config_mode").checked;
+      const errorEl = document.getElementById("execError");
+      const outputEl = document.getElementById("execOutput");
+
+      const commandList = rawCommands.split("\n").map(c => c.trim()).filter(Boolean);
+
+      errorEl.innerText = "";
+      outputEl.style.display = "none";
+
+      if (!username || !password) {
+        errorEl.innerText = "SSH username and password are required.";
+        return;
+      }
+      if (commandList.length === 0) {
+        errorEl.innerText = "Enter at least one command.";
+        return;
+      }
+
+      const confirmMsg = `You're about to run ${commandList.length} command(s) on ${deviceName}:\n\n` +
+        commandList.map(c => "  " + c).join("\n") +
+        `\n\nThis changes the device's live configuration. Continue?`;
+      if (!confirm(confirmMsg)) return;
+
+      const btn = document.getElementById("execRunBtn");
+      btn.disabled = true;
+      btn.innerText = "Running...";
+
+      try {
+        const result = await api(`/devices/${deviceId}/exec`, {
+          method: "POST",
+          body: JSON.stringify({
+            device_id: deviceId,
+            username, password,
+            commands: commandList,
+            enter_config_mode: enterConfigMode,
+          }),
+        });
+
+        outputEl.style.display = "block";
+        outputEl.innerText = result.transcript
+          .map(t => `> ${t.command}\n${t.output || "(no output)"}`)
+          .join("\n\n");
+        document.getElementById("exec_pass").value = "";
+      } catch (err) {
+        errorEl.innerText = err.message;
+      }
+
+      btn.disabled = false;
+      btn.innerText = "Review & Run";
+    }
+
+    loadDevices();
+  </script>
+</body>
+</html>

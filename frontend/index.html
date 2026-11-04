@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetWatch — Login</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+  .login-box { width: 360px; max-width: 100%; }
+  .login-box h1 { text-align: center; color: var(--accent); margin-bottom: 4px; }
+  .login-box .subtitle { text-align: center; margin-bottom: 24px; }
+  #response { margin-top: 14px; font-size: 13px; text-align: center; min-height: 18px; }
+  .hint { font-size: 12px; color: var(--muted); text-align: center; margin-top: 18px; }
+</style>
+</head>
+<body>
+
+  <div class="card login-box">
+    <h1>NetWatch</h1>
+    <div class="subtitle">Network monitoring &amp; sysadmin toolkit</div>
+
+    <div class="field">
+      <label for="username">Username</label>
+      <input id="username" type="text" placeholder="admin" autocomplete="username">
+    </div>
+
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" type="password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+
+    <button id="btn_login" type="button" onclick="login()" style="width:100%;">Login</button>
+
+    <div id="response"></div>
+    <!-- <div class="hint">Default account: admin / admin — change this immediately after first login.</div> --!>
+      
+
+
+  <script src="app.js"></script>
+  <script>
+    async function login() {
+      const responseEl = document.getElementById("response");
+      responseEl.className = "";
+      responseEl.innerText = "";
+
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value;
+
+      if (!username || !password) {
+        responseEl.className = "error-text";
+        responseEl.innerText = "Enter a username and password.";
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          localStorage.setItem("netwatch_session", JSON.stringify(data));
+          window.location.replace("dashboard.html");
+        } else {
+          const error = await res.json();
+          responseEl.className = "error-text";
+          responseEl.innerText = error.detail || "Login failed";
+        }
+      } catch (err) {
+        responseEl.className = "error-text";
+        responseEl.innerText = "Cannot reach backend at " + API_BASE + " — is it running?";
+      }
+    }
+
+    document.getElementById("password").addEventListener("keydown", e => {
+      if (e.key === "Enter") login();
+    });
+
+    // If already logged in, skip straight to dashboard
+    if (getSession()) window.location.replace("dashboard.html");
+  </script>
+</body>
+</html>

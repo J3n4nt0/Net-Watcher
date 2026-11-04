@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetWatch — Users</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <h1>User Management</h1>
+    <div class="subtitle">Create accounts and manage roles — admin only</div>
+
+    <div id="notAdmin" style="display:none;" class="card">
+      <div class="error-text">Your account doesn't have admin privileges, so this page isn't available to you.</div>
+    </div>
+
+    <div id="adminArea" style="display:none;">
+      <div style="margin-bottom:18px;">
+        <button onclick="openModal()">+ Add User</button>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table id="usersTable">
+            <thead>
+              <tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="status-text" id="empty" style="display:none;">No users yet.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add user modal -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <h3>Add User</h3>
+
+      <div class="field">
+        <label>Username</label>
+        <input id="f_username" placeholder="jsmith">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="f_password" type="password" placeholder="At least 4 characters">
+      </div>
+      <div class="field">
+        <label>Role</label>
+        <select id="f_role">
+          <option value="guest" selected>Guest — read/monitoring access</option>
+          <option value="admin">Admin — full access, including device commands</option>
+        </select>
+      </div>
+
+      <div class="error-text" id="modalError"></div>
+      <div class="modal-actions">
+        <button class="secondary" onclick="closeModal()">Cancel</button>
+        <button onclick="saveUser()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    const session = requireAuth();
+    renderNav("users.html");
+
+    if (session.role !== "admin") {
+      document.getElementById("notAdmin").style.display = "block";
+    } else {
+      document.getElementById("adminArea").style.display = "block";
+      loadUsers();
+    }
+
+    async function loadUsers() {
+      try {
+        const users = await api("/users");
+        const tbody = document.querySelector("#usersTable tbody");
+        tbody.innerHTML = "";
+        document.getElementById("empty").style.display = users.length ? "none" : "block";
+
+        users.forEach(u => {
+          const isSelf = u.username === session.username;
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${u.username}${isSelf ? ' <span class="status-text" style="margin:0;">(you)</span>' : ""}</td>
+            <td>
+              <select onchange="changeRole(${u.id}, this.value, '${u.username}')" ${isSelf ? "disabled" : ""} style="width:auto; padding:6px 10px;">
+                <option value="guest" ${u.role === "guest" ? "selected" : ""}>Guest</option>
+                <option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option>
+              </select>
+            </td>
+            <td>${new Date(u.created_at + "Z").toLocaleDateString()}</td>
+            <td style="text-align:right;">
+              ${isSelf ? "" : `<button class="danger" style="padding:6px 10px;" onclick="deleteUser(${u.id}, '${u.username}')">Delete</button>`}
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        document.querySelector("#usersTable tbody").innerHTML =
+          `<tr><td colspan="4" class="error-text">Failed to load: ${err.message}</td></tr>`;
+      }
+    }
+
+    async function changeRole(userId, newRole, username) {
+      if (!confirm(`Change ${username}'s role to ${newRole}?`)) {
+        loadUsers();
+        return;
+      }
+      try {
+        await api(`/users/${userId}/role`, { method: "PUT", body: JSON.stringify({ role: newRole }) });
+        loadUsers();
+      } catch (err) {
+        alert("Failed to update role: " + err.message);
+        loadUsers();
+      }
+    }
+
+    async function deleteUser(userId, username) {
+      if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+      try {
+        await api(`/users/${userId}`, { method: "DELETE" });
+        loadUsers();
+      } catch (err) {
+        alert("Failed to delete: " + err.message);
+      }
+    }
+
+    function openModal() {
+      document.getElementById("f_username").value = "";
+      document.getElementById("f_password").value = "";
+      document.getElementById("f_role").value = "guest";
+      document.getElementById("modalError").innerText = "";
+      document.getElementById("modalBackdrop").classList.add("open");
+    }
+
+    function closeModal() {
+      document.getElementById("modalBackdrop").classList.remove("open");
+    }
+
+    async function saveUser() {
+      const payload = {
+        username: document.getElementById("f_username").value.trim(),
+        password: document.getElementById("f_password").value,
+        role: document.getElementById("f_role").value,
+      };
+
+      if (!payload.username || !payload.password) {
+        document.getElementById("modalError").innerText = "Username and password are required.";
+        return;
+      }
+
+      try {
+        await api("/users", { method: "POST", body: JSON.stringify(payload) });
+        closeModal();
+        loadUsers();
+      } catch (err) {
+        document.getElementById("modalError").innerText = err.message;
+      }
+    }
+  </script>
+</body>
+</html>

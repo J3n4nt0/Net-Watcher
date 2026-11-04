@@ -1,0 +1,6 @@
+version
+prompt
+__pychache__
+Makefile
+test_all.py
+backend/netwatch.db

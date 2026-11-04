@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetWatch — Backups</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <h1>Config Backups</h1>
+    <div class="subtitle">Pull and version device running-configs over SSH</div>
+
+    <div class="card">
+      <div class="toolbar">
+        <div class="field">
+          <label>Device</label>
+          <select id="deviceSelect"></select>
+        </div>
+        <div class="field">
+          <label>SSH Username</label>
+          <input id="sshUser" placeholder="admin">
+        </div>
+        <div class="field">
+          <label>SSH Password</label>
+          <input id="sshPass" type="password" placeholder="••••••••">
+        </div>
+        <button onclick="runBackup()" id="backupBtn">Run Backup Now</button>
+      </div>
+      <div class="status-text" id="backupStatus"></div>
+      <div class="status-text" style="font-size:12px;">Credentials are used for this one SSH session only and are not stored.</div>
+    </div>
+
+    <h2>Backup History</h2>
+    <div class="card">
+      <div class="table-wrap">
+        <table id="historyTable">
+          <thead><tr><th>ID</th><th>Taken</th><th>Size</th><th>Hash</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="status-text" id="historyEmpty" style="display:none;">No backups yet for this device.</div>
+    </div>
+
+    <div id="diffSection" style="display:none;">
+      <h2>Compare Backups</h2>
+      <div class="card">
+        <div class="toolbar">
+          <div class="field"><label>From (older)</label><select id="diffA"></select></div>
+          <div class="field"><label>To (newer)</label><select id="diffB"></select></div>
+          <button onclick="runDiff()">Diff</button>
+        </div>
+        <pre class="output" id="diffOutput" style="display:none;"></pre>
+      </div>
+    </div>
+
+    <div id="viewSection" style="display:none;">
+      <h2>Config Text</h2>
+      <div class="card">
+        <pre class="output" id="configOutput"></pre>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    requireAuth();
+    renderNav("backups.html");
+
+    let devices = [];
+
+    async function loadDevices() {
+      devices = await api("/devices");
+      const select = document.getElementById("deviceSelect");
+      select.innerHTML = devices.map(d => `<option value="${d.id}">${d.name} (${d.ip})</option>`).join("");
+      if (devices.length) loadHistory();
+    }
+
+    async function loadHistory() {
+      const deviceId = document.getElementById("deviceSelect").value;
+      if (!deviceId) return;
+      const backups = await api(`/backups/${deviceId}`);
+      const tbody = document.querySelector("#historyTable tbody");
+      tbody.innerHTML = "";
+      document.getElementById("historyEmpty").style.display = backups.length ? "none" : "block";
+      document.getElementById("diffSection").style.display = backups.length >= 2 ? "block" : "none";
+
+      backups.forEach(b => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${b.id}</td>
+          <td>${timeAgo(b.taken_at)}</td>
+          <td>${b.size_bytes} bytes</td>
+          <td><code>${b.config_hash.slice(0, 10)}…</code></td>
+          <td><button class="secondary" style="padding:6px 10px;" onclick="viewBackup(${b.id})">View</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      if (backups.length >= 2) {
+        const options = backups.map(b => `<option value="${b.id}">#${b.id} — ${timeAgo(b.taken_at)}</option>`).join("");
+        document.getElementById("diffA").innerHTML = options;
+        document.getElementById("diffB").innerHTML = options;
+        document.getElementById("diffB").selectedIndex = 0;
+        document.getElementById("diffA").selectedIndex = Math.min(1, backups.length - 1);
+      }
+    }
+
+    async function viewBackup(id) {
+      const data = await api(`/backups/text/${id}`);
+      document.getElementById("viewSection").style.display = "block";
+      document.getElementById("configOutput").innerText = data.config_text;
+      document.getElementById("viewSection").scrollIntoView({ behavior: "smooth" });
+    }
+
+    async function runBackup() {
+      const btn = document.getElementById("backupBtn");
+      const status = document.getElementById("backupStatus");
+      const deviceId = parseInt(document.getElementById("deviceSelect").value);
+      const username = document.getElementById("sshUser").value.trim();
+      const password = document.getElementById("sshPass").value;
+
+      if (!deviceId) { status.innerText = "Add a device first."; return; }
+      if (!username || !password) { status.innerText = "Enter SSH credentials."; return; }
+
+      btn.disabled = true;
+      status.innerText = "Connecting over SSH and pulling config...";
+      try {
+        const result = await api("/backups/run", {
+          method: "POST",
+          body: JSON.stringify({ device_id: deviceId, username, password })
+        });
+        status.innerText = result.saved
+          ? (result.changed ? "Backup saved — config changed since last backup." : "Backup saved.")
+          : "No changes since last backup — nothing new saved.";
+        document.getElementById("sshPass").value = "";
+        loadHistory();
+      } catch (err) {
+        status.innerText = "Error: " + err.message;
+      }
+      btn.disabled = false;
+    }
+
+    async function runDiff() {
+      const a = document.getElementById("diffA").value;
+      const b = document.getElementById("diffB").value;
+      const output = document.getElementById("diffOutput");
+      try {
+        const data = await api(`/backups/diff?a=${a}&b=${b}`);
+        output.style.display = "block";
+        output.innerText = data.diff || "No differences.";
+      } catch (err) {
+        output.style.display = "block";
+        output.innerText = "Error: " + err.message;
+      }
+    }
+
+    document.getElementById("deviceSelect").addEventListener("change", loadHistory);
+    loadDevices();
+  </script>
+</body>
+</html>
