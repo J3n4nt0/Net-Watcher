@@ -1,4 +1,4 @@
-🌐 NetWatcher — Network Sysadmin Toolkit
+# NetWatcher — Network Sysadmin Toolkit
 
 Monitor, diagnose, and manage your network infrastructure from a single interface.
 
@@ -8,7 +8,7 @@ Developed with FastAPI, HTML, CSS, and vanilla JavaScript, NetWatcher brings tog
 
 ---
 
-✨ Features
+### Features
 
 Feature| Description
 Network Monitoring| Monitor network devices using SNMP
@@ -20,7 +20,7 @@ User Management| User and access management
 
 ---
 
-# 🛠️ Technologies Used
+### Technologies Used
 
 - Backend: Python, FastAPI
 - Frontend: HTML5, CSS3, Vanilla JavaScript
@@ -29,7 +29,7 @@ User Management| User and access management
 
 ---
 
-# 🚀 Installation
+### Installation
 
 1. Clone the repository
 
@@ -44,18 +44,17 @@ pip install -r requirements.txt --break-system-packages
 
 ---
 
-# 🔐 Login Credentials
+### Login Credentials
 
 Default credentials:
-
+Field|value
 Username| "admin"
 Password| "admin"
 
-⚠️ Security Note: For security reasons, change the default password immediately after your first login.
 
 ---
 
-📡 SNMP Monitoring
+### SNMP Monitoring
 
 NetWatcher uses SNMP to collect information from compatible network devices.
 
