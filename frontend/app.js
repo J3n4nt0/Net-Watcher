@@ -69,7 +69,7 @@ function renderNav(active) {
   }
   nav.innerHTML = `
     <div class="nav-inner">
-      <span class="brand">NetWatch</span>
+      <span class="brand">NetWatcher</span>
       <span class="nav-user">${session ? session.username + " (" + session.role + ")" : ""}</span>
       <button class="nav-toggle" id="navToggle" aria-label="Toggle menu" aria-expanded="false">☰</button>
       <div class="nav-links" id="navLinks">

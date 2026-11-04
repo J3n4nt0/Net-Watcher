@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NetWatch — Tools</title>
+<title>NetWatcher — Tools</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,6 +19,7 @@
       <div class="tab" data-tab="dns">DNS Lookup</div>
       <div class="tab" data-tab="traceroute">Traceroute</div>
       <div class="tab" data-tab="subnet">Subnet Calculator</div>
+      <div class="tab" data-tab="snmp">SNMP</div>
     </div>
 
     <div class="card" id="tab-sweep">
@@ -73,21 +74,104 @@
       <div id="sn_status" class="status-text"></div>
       <div id="sn_results"></div>
     </div>
+
+    <div class="card" id="tab-snmp" style="display:none;">
+      <div class="toolbar">
+        <div class="field">
+          <label>Host / IP</label>
+          <input id="snmp_host" list="snmpHosts" placeholder="192.168.1.1" autocomplete="off">
+          <datalist id="snmpHosts"></datalist>
+        </div>
+        <div class="field"><label>Community</label><input id="snmp_community" value="public" autocomplete="off"></div>
+        <div class="field" style="flex:0 0 110px; min-width:90px;">
+          <label>Version</label>
+          <select id="snmp_version"><option value="2c">v2c</option><option value="1">v1</option></select>
+        </div>
+        <div class="field" style="flex:0 0 110px; min-width:90px;"><label>Port</label><input id="snmp_port" type="number" value="161"></div>
+        <button onclick="runSnmp()" id="snmpBtn">Query</button>
+      </div>
+      <div class="status-text" style="font-size:12px; margin-top:0;">
+        One-off query of any host. The community string is sent in the request body and is not stored.
+        Hosts you want watched continuously belong on the <a href="hosts.html" style="color:var(--accent);">Hosts</a> page.
+      </div>
+      <div id="snmp_status" class="status-text"></div>
+      <div id="snmp_results"></div>
+    </div>
   </div>
 
   <script src="app.js"></script>
+  <script src="snmp-view.js"></script>
   <script>
     requireAuth();
     renderNav("tools.html");
 
+    function activateTab(name) {
+      const tab = document.querySelector(`.tab[data-tab="${name}"]`);
+      if (!tab) return;
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      document.querySelectorAll(".card[id^='tab-']").forEach(c => c.style.display = "none");
+      tab.classList.add("active");
+      document.getElementById("tab-" + name).style.display = "block";
+    }
     document.querySelectorAll(".tab").forEach(tab => {
-      tab.addEventListener("click", () => {
-        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-        document.querySelectorAll(".card[id^='tab-']").forEach(c => c.style.display = "none");
-        tab.classList.add("active");
-        document.getElementById("tab-" + tab.dataset.tab).style.display = "block";
-      });
+      tab.addEventListener("click", () => activateTab(tab.dataset.tab));
     });
+
+    // ---- SNMP tab ----
+    let snmpLast = null, snmpOnlyUp = false, devicesByIp = {};
+    window.snmpFilterChanged = checked => {
+      snmpOnlyUp = checked;
+      if (snmpLast) document.getElementById("snmp_results").innerHTML = renderSnmpDetail(snmpLast, { onlyUp: snmpOnlyUp });
+    };
+
+    async function runSnmp() {
+      const host = document.getElementById("snmp_host").value.trim();
+      const status = document.getElementById("snmp_status");
+      const results = document.getElementById("snmp_results");
+      const btn = document.getElementById("snmpBtn");
+      if (!host) { status.innerText = "Enter a host."; return; }
+
+      btn.disabled = true;
+      status.innerText = "Querying over SNMP...";
+      results.innerHTML = "";
+      try {
+        const data = await api("/tools/snmp", {
+          method: "POST",
+          body: JSON.stringify({
+            host,
+            community: document.getElementById("snmp_community").value,
+            version: document.getElementById("snmp_version").value,
+            port: parseInt(document.getElementById("snmp_port").value) || 161,
+          }),
+        });
+        snmpLast = data;
+        status.innerText = `Answered in ${data.elapsed_ms} ms`;
+        results.innerHTML = renderSnmpDetail(data, { onlyUp: snmpOnlyUp });
+      } catch (err) {
+        status.innerText = "";
+        results.innerHTML = `<div class="error-text">${escapeHtml(err.message)}</div>`;
+      }
+      btn.disabled = false;
+    }
+
+    // Suggest registered devices, and reuse their SNMP version/port when one is picked
+    api("/devices").then(devices => {
+      devices.forEach(d => { devicesByIp[d.ip] = d; });
+      document.getElementById("snmpHosts").innerHTML =
+        devices.map(d => `<option value="${escapeHtml(d.ip)}">${escapeHtml(d.name)}</option>`).join("");
+    }).catch(() => {});
+    document.getElementById("snmp_host").addEventListener("input", e => {
+      const d = devicesByIp[e.target.value.trim()];
+      if (d) {
+        document.getElementById("snmp_version").value = d.snmp_version || "2c";
+        document.getElementById("snmp_port").value = d.snmp_port || 161;
+      }
+    });
+
+    // Deep links: tools.html?tab=snmp&host=10.0.0.1
+    const urlParams = new URLSearchParams(location.search);
+    if (urlParams.get("tab")) activateTab(urlParams.get("tab"));
+    if (urlParams.get("host")) document.getElementById("snmp_host").value = urlParams.get("host");
 
     async function runSweep() {
       const btn = document.getElementById("sweepBtn");
@@ -228,7 +312,7 @@
       }
     }
 
-    ["sw_subnet","sw_ips","ps_host","dns_host","tr_host","sn_cidr"].forEach(id => {
+    ["sw_subnet","sw_ips","ps_host","dns_host","tr_host","sn_cidr","snmp_host","snmp_community","snmp_port"].forEach(id => {
       document.getElementById(id).addEventListener("keydown", e => {
         if (e.key === "Enter") {
           const activeTab = document.querySelector('.tab.active').dataset.tab;

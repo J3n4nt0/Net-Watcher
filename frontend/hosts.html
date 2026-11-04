@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetWatcher — Hosts</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <h1>Hosts (SNMP)</h1>
+    <div class="subtitle">Detailed host information, collected automatically in the background</div>
+
+    <div class="card" style="margin-bottom:18px;">
+      <div class="toolbar-inline" style="margin-bottom:8px;">
+        <div>
+          <label for="refreshSelect">Refresh this page</label>
+          <select id="refreshSelect">
+            <option value="0">Off</option>
+            <option value="10000">every 10 s</option>
+            <option value="30000">every 30 s</option>
+            <option value="60000">every 1 min</option>
+            <option value="300000">every 5 min</option>
+          </select>
+        </div>
+        <div>
+          <label for="serverSelect">Server polls hosts</label>
+          <select id="serverSelect" disabled></select>
+        </div>
+        <button class="secondary" id="pollBtn" onclick="pollNow()">Poll now</button>
+      </div>
+      <div class="status-text" id="status" style="margin:0;">Loading…</div>
+      <div class="status-text" style="font-size:12px; margin:4px 0 0;">
+        The server queries each host over SNMP in the background and caches the result; this page re-reads the cache on the timer above.
+        Pausing happens automatically while the tab is hidden.
+      </div>
+    </div>
+
+    <div class="grid grid-4" id="stats"></div>
+
+    <h2>Monitored hosts</h2>
+    <div id="hostGrid" class="grid grid-3"></div>
+    <div id="empty" class="card" style="display:none;">
+      <div class="status-text" style="margin:0;">
+        No devices have SNMP enabled yet. An admin can turn it on under
+        <a href="devices.html" style="color:var(--accent);">Devices</a> → Edit → “Enable SNMP polling”.
+        To query a host that isn't registered, use <a href="tools.html?tab=snmp" style="color:var(--accent);">Tools → SNMP</a>.
+      </div>
+    </div>
+
+    <div id="detail"></div>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="snmp-view.js"></script>
+  <script>
+    const session = requireAuth();
+    renderNav("hosts.html");
+
+    const REFRESH_KEY = "netwatch_hosts_refresh_ms";
+    const refreshSelect = document.getElementById("refreshSelect");
+    const serverSelect = document.getElementById("serverSelect");
+
+    let selectedId = Number(new URLSearchParams(location.search).get("device")) || null;
+    let onlyUp = false;
+    let lastDetail = null;
+    let loading = false;
+    let lastUpdated = null;
+    let lastError = "";
+    let nextAt = null;
+
+    // ---- refresh frequency (remembered in this browser) ----
+    refreshSelect.value = localStorage.getItem(REFRESH_KEY) ?? "30000";
+    if (refreshSelect.value === "") refreshSelect.value = "30000";
+    refreshSelect.addEventListener("change", () => {
+      localStorage.setItem(REFRESH_KEY, refreshSelect.value);
+      nextAt = Number(refreshSelect.value) ? Date.now() + Number(refreshSelect.value) : null;
+      updateStatus();
+    });
+
+    // ---- rendering ----
+    function stateBadge(h) {
+      if (h.state === "ok") return `<span class="badge badge-up">SNMP OK</span>`;
+      if (h.state === "error") {
+        return h.summary ? `<span class="badge badge-warn">STALE</span>` : `<span class="badge badge-down">NO RESPONSE</span>`;
+      }
+      return `<span class="badge badge-unknown">WAITING</span>`;
+    }
+
+    function metric(label, pct) {
+      if (pct === null || pct === undefined) return `<div class="metric"><span>${label}</span><span>n/a</span><span></span></div>`;
+      return `<div class="metric"><span>${label}</span>${usageBar(pct)}<span>${escapeHtml(pct)}%</span></div>`;
+    }
+
+    function hostCard(h) {
+      const s = h.summary;
+      const traffic = s && s.traffic ? `↓ ${formatBps(s.traffic.in_bps)} ↑ ${formatBps(s.traffic.out_bps)}` : "—";
+      return `
+        <div class="card host-card ${h.id === selectedId ? "selected" : ""}" data-id="${h.id}">
+          <h3><span>${escapeHtml(h.name)}</span>${stateBadge(h)}</h3>
+          <div class="sub">${escapeHtml(h.ip)} · ${escapeHtml(s && s.vendor ? s.vendor : h.device_type)} · ping ${escapeHtml(h.ping_status)}</div>
+          ${s ? metric("CPU", s.cpu_avg) + metric("RAM", s.ram_used_pct) : ""}
+          ${s ? `<div class="host-meta">
+                   <span>Uptime <b>${escapeHtml(s.uptime_human || "—")}</b></span>
+                   <span>Ifaces <b>${s.if_up}/${s.if_total}</b></span>
+                   <span>Traffic <b>${escapeHtml(traffic)}</b></span>
+                 </div>` : ""}
+          ${h.state === "error" ? `<div class="status-text" style="color:var(--down); margin:10px 0 0;">${escapeHtml(h.error)}</div>` : ""}
+          <div class="host-meta"><span>${h.collected_at ? "data from " + timeAgo(h.collected_at) : "no data yet"}</span></div>
+        </div>`;
+    }
+
+    function renderOverview(data) {
+      const hosts = data.hosts;
+      const ok = hosts.filter(h => h.state === "ok").length;
+      const errs = hosts.filter(h => h.state === "error").length;
+      const pending = hosts.filter(h => h.state === "pending").length;
+
+      document.getElementById("stats").innerHTML = `
+        <div class="card stat-card"><div class="stat-value">${hosts.length}</div><div class="stat-label">Monitored hosts</div></div>
+        <div class="card stat-card stat-up"><div class="stat-value">${ok}</div><div class="stat-label">Responding</div></div>
+        <div class="card stat-card stat-down"><div class="stat-value">${errs}</div><div class="stat-label">Not responding</div></div>
+        <div class="card stat-card"><div class="stat-value">${pending}</div><div class="stat-label">Waiting for first poll</div></div>`;
+
+      document.getElementById("empty").style.display = hosts.length ? "none" : "block";
+      document.getElementById("hostGrid").innerHTML = hosts.map(hostCard).join("");
+      syncServerInterval(data.poll_interval_seconds);
+    }
+
+    function syncServerInterval(seconds) {
+      const options = [15, 30, 60, 300, 900];
+      if (!options.includes(seconds)) options.push(seconds), options.sort((a, b) => a - b);
+      const label = s => s < 60 ? `every ${s} s` : `every ${Math.round(s / 60)} min`;
+      if (document.activeElement !== serverSelect) {
+        serverSelect.innerHTML = options.map(s => `<option value="${s}">${label(s)}</option>`).join("");
+        serverSelect.value = String(seconds);
+      }
+      serverSelect.disabled = session.role !== "admin";
+      serverSelect.title = session.role === "admin" ? "" : "Only admins can change this";
+    }
+
+    serverSelect.addEventListener("change", async () => {
+      try {
+        await api("/settings/snmp", { method: "PUT", body: JSON.stringify({ seconds: Number(serverSelect.value) }) });
+        lastError = "";
+        refresh();
+      } catch (err) { lastError = err.message; updateStatus(); }
+    });
+
+    function renderDetail() {
+      const el = document.getElementById("detail");
+      if (!selectedId || !lastDetail) { el.innerHTML = ""; return; }
+      const d = lastDetail;
+      let html = `<h2>Details — ${escapeHtml(d.device.name)} (${escapeHtml(d.device.ip)})</h2>`;
+      if (d.state === "error") {
+        html += `<div class="banner">Last poll failed: ${escapeHtml(d.error)}${d.data ? ` — showing the last data collected ${escapeHtml(timeAgo(d.data.collected_at))}.` : ""}</div>`;
+      }
+      if (!d.data) {
+        const msg = !d.device.snmp_enabled ? "SNMP polling is not enabled for this device (an admin can enable it under Devices → Edit)."
+          : d.state === "pending" ? "Waiting for the first poll…" : "No data collected yet.";
+        html += `<div class="card"><div class="status-text" style="margin:0;">${msg}</div></div>`;
+      } else {
+        html += renderSnmpDetail(d.data, { onlyUp });
+      }
+      el.innerHTML = html;
+    }
+
+    window.snmpFilterChanged = checked => { onlyUp = checked; renderDetail(); };
+
+    async function loadDetail() {
+      if (!selectedId) return;
+      try {
+        lastDetail = await api(`/snmp/devices/${selectedId}`);
+      } catch (err) {
+        lastDetail = null;
+        document.getElementById("detail").innerHTML = `<div class="error-text">${escapeHtml(err.message)}</div>`;
+        return;
+      }
+      renderDetail();
+    }
+
+    // ---- loading / auto-refresh ----
+    async function refresh() {
+      if (loading) return;
+      loading = true;
+      try {
+        renderOverview(await api("/snmp/overview"));
+        await loadDetail();
+        lastUpdated = new Date();
+        lastError = "";
+      } catch (err) {
+        lastError = err.message;
+      } finally {
+        loading = false;
+        const ms = Number(refreshSelect.value);
+        nextAt = ms ? Date.now() + ms : null;
+        updateStatus();
+      }
+    }
+
+    function updateStatus() {
+      const parts = [];
+      if (lastError) parts.push(`<span style="color:var(--down);">Error: ${escapeHtml(lastError)}</span>`);
+      if (lastUpdated) parts.push(`Updated ${lastUpdated.toLocaleTimeString()}`);
+      else if (!lastError) parts.push("Loading…");
+      if (nextAt && !document.hidden) parts.push(`next refresh in ${Math.max(0, Math.round((nextAt - Date.now()) / 1000))} s`);
+      else if (nextAt && document.hidden) parts.push("paused while the tab is hidden");
+      else parts.push("auto-refresh off");
+      document.getElementById("status").innerHTML = parts.join(" · ");
+    }
+
+    // One 1-second ticker drives both the countdown and the refresh itself.
+    setInterval(() => {
+      if (nextAt && !document.hidden && Date.now() >= nextAt) refresh();
+      else updateStatus();
+    }, 1000);
+
+    async function pollNow() {
+      const btn = document.getElementById("pollBtn");
+      btn.disabled = true;
+      document.getElementById("status").innerText = "Asking the server to poll all hosts…";
+      try {
+        await api("/snmp/poll-now", { method: "POST" });
+        setTimeout(async () => { await refresh(); btn.disabled = false; }, 3000);
+      } catch (err) {
+        lastError = err.message; btn.disabled = false; updateStatus();
+      }
+    }
+
+    document.getElementById("hostGrid").addEventListener("click", e => {
+      const card = e.target.closest(".host-card");
+      if (!card) return;
+      selectedId = Number(card.dataset.id);
+      document.querySelectorAll(".host-card").forEach(c => c.classList.toggle("selected", c === card));
+      loadDetail().then(() => document.getElementById("detail").scrollIntoView({ behavior: "smooth" }));
+    });
+
+    // Load immediately on open: no button press needed.
+    refresh();
+  </script>
+</body>
+</html>

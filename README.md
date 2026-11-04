@@ -1,13 +1,75 @@
-# Description 
+🌐 NetWatcher — Network Sysadmin Toolkit
 
-NetWatch or Thae_Net_Watcher is a network monitoring plateform.
+Monitor, diagnose, and manage your network infrastructure from a single interface.
 
-# Technology used
+NetWatcher is a self-hosted web application designed to simplify network infrastructure administration and monitoring.
 
-## Frontend 
-- Html
-- Vanilla js 
-- Css
+Developed with FastAPI, HTML, CSS, and vanilla JavaScript, NetWatcher brings together several essential tools for system and network administrators, including SNMP monitoring, device inventory, configuration backups, and network diagnostics.
 
-## Backend 
-- python 
+---
+
+✨ Features
+
+Feature| Description
+Network Monitoring| Monitor network devices using SNMP
+Device Inventory| Centralized inventory and management of network devices
+Configuration Backup| Back up network device configurations
+Network Diagnostics| Network troubleshooting and diagnostic tools
+Dashboard| Centralized interface for visualizing network status
+User Management| User and access management
+
+---
+
+# 🛠️ Technologies Used
+
+- Backend: Python, FastAPI
+- Frontend: HTML5, CSS3, Vanilla JavaScript
+- Monitoring: SNMP
+- Architecture: Self-hosted web application
+
+---
+
+# 🚀 Installation
+
+1. Clone the repository
+
+git clone https://github.com/J3n4nt0/Net-Watch.git
+cd Net-Watch
+
+2. Install dependencies
+
+cd backend
+
+pip install -r requirements.txt --break-system-packages
+
+---
+
+# 🔐 Login Credentials
+
+Default credentials:
+
+Username| "admin"
+Password| "admin"
+
+⚠️ Security Note: For security reasons, change the default password immediately after your first login.
+
+---
+
+📡 SNMP Monitoring
+
+NetWatcher uses SNMP to collect information from compatible network devices.
+
+The monitoring features include:
+
+- Network interface information
+- Device uptime
+- System information
+- SNMP monitoring data
+
+---
+
+‍ Developer
+
+Developed by: Jenny Antonio
+
+NetWatcher — Your network, under control.

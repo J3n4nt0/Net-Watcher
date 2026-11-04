@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NetWatch — Devices</title>
+<title>NetWatcher — Devices</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
 
   <div class="container">
     <h1>Device Inventory</h1>
-    <div class="subtitle">Add, edit, and manage the devices NetWatch tracks</div>
+    <div class="subtitle">Add, edit, and manage the devices NetWatcher tracks</div>
 
     <div style="margin-bottom:18px;">
       <button onclick="openModal()">+ Add Device</button>
@@ -79,6 +79,28 @@
         <textarea id="f_notes" rows="2" placeholder="Location, contact, etc."></textarea>
       </div>
 
+      <div id="snmpSection" style="display:none; border-top:1px solid var(--panel-border); padding-top:14px; margin-top:4px;">
+        <div class="field" style="display:flex; align-items:center; gap:8px; flex-direction:row;">
+          <input type="checkbox" id="f_snmp_enabled" style="width:auto;">
+          <label style="margin:0;" for="f_snmp_enabled">Enable SNMP polling (shows on the Hosts page)</label>
+        </div>
+        <div class="field">
+          <label>SNMP community</label>
+          <input id="f_snmp_community" type="password" autocomplete="new-password" placeholder="public">
+          <div class="status-text" style="font-size:12px; margin:4px 0 0;" id="snmpCommunityHint"></div>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <div class="field" style="flex:1;">
+            <label>SNMP version</label>
+            <select id="f_snmp_version"><option value="2c">v2c</option><option value="1">v1</option></select>
+          </div>
+          <div class="field" style="flex:1;">
+            <label>SNMP port</label>
+            <input id="f_snmp_port" type="number" value="161">
+          </div>
+        </div>
+      </div>
+
       <div class="error-text" id="modalError"></div>
       <div class="modal-actions">
         <button class="secondary" onclick="closeModal()">Cancel</button>
@@ -94,7 +116,7 @@
       <input type="hidden" id="execDeviceId">
 
       <div class="status-text" style="background:rgba(245,158,11,0.1); color:var(--warn); padding:10px 12px; border-radius:7px; margin-bottom:14px;">
-        This sends the commands below directly to the device's CLI over SSH. Double-check them — NetWatch blocks a few obviously destructive commands (erase, reload, format) but cannot validate arbitrary CLI syntax for every vendor.
+        This sends the commands below directly to the device's CLI over SSH. Double-check them — NetWatcher blocks a few obviously destructive commands (erase, reload, format) but cannot validate arbitrary CLI syntax for every vendor.
       </div>
 
       <div class="field">
@@ -159,11 +181,24 @@
       }
     }
 
+    function fillSnmpFields(d) {
+      const section = document.getElementById("snmpSection");
+      section.style.display = session.role === "admin" ? "block" : "none";
+      document.getElementById("f_snmp_enabled").checked = !!d.snmp_enabled;
+      document.getElementById("f_snmp_version").value = d.snmp_version || "2c";
+      document.getElementById("f_snmp_port").value = d.snmp_port || 161;
+      document.getElementById("f_snmp_community").value = "";
+      document.getElementById("snmpCommunityHint").innerText = d.has_snmp_community
+        ? "A community string is stored. Leave blank to keep it, or type a new one to replace it."
+        : "Leave blank to use \"public\".";
+    }
+
     function openModal() {
       document.getElementById("modalTitle").innerText = "Add Device";
       document.getElementById("deviceId").value = "";
       ["f_name","f_ip","f_tags","f_notes"].forEach(id => document.getElementById(id).value = "");
       document.getElementById("f_port").value = 22;
+      fillSnmpFields({ snmp_enabled: 0, snmp_version: "2c", snmp_port: 161, has_snmp_community: 0 });
       document.getElementById("f_type").value = "generic";
       document.getElementById("f_vendor").value = "generic";
       document.getElementById("modalError").innerText = "";
@@ -178,6 +213,7 @@
       document.getElementById("f_type").value = d.device_type;
       document.getElementById("f_vendor").value = d.vendor;
       document.getElementById("f_port").value = d.ssh_port;
+      fillSnmpFields(d);
       document.getElementById("f_tags").value = d.tags;
       document.getElementById("f_notes").value = d.notes;
       document.getElementById("modalError").innerText = "";
@@ -199,6 +235,13 @@
         tags: document.getElementById("f_tags").value.trim(),
         notes: document.getElementById("f_notes").value.trim(),
       };
+      if (session.role === "admin") {
+        payload.snmp_enabled = document.getElementById("f_snmp_enabled").checked;
+        payload.snmp_version = document.getElementById("f_snmp_version").value;
+        payload.snmp_port = parseInt(document.getElementById("f_snmp_port").value) || 161;
+        const community = document.getElementById("f_snmp_community").value;
+        if (community) payload.snmp_community = community; // empty = keep the stored one
+      }
 
       if (!payload.name || !payload.ip) {
         document.getElementById("modalError").innerText = "Name and IP are required.";

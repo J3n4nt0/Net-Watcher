@@ -19,9 +19,11 @@ import backup
 import commands
 import nettools
 import scheduler
+import snmp
+import snmp_poller
 from database import init_db, db_cursor
 
-app = FastAPI(title="NetWatcher API", version="2.1")
+app = FastAPI(title="NetWatcher API", version="2.2")
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,6 +51,7 @@ def _seed_default_admin():
 
 _seed_default_admin()
 scheduler.start(interval_s=60)  # auto-pings every registered device every 60s
+snmp_poller.start()  # auto-polls every SNMP-enabled device (interval is a DB setting)
 
 
 # ---------------------------------------------------------------- Schemas --
@@ -75,6 +78,22 @@ class DeviceIn(BaseModel):
     ssh_port: int = 22
     tags: str = ""
     notes: str = ""
+    snmp_enabled: bool = False
+    snmp_version: str = "2c"
+    snmp_port: int = 161
+    snmp_community: str | None = None
+
+
+class SnmpQuery(BaseModel):
+    host: str
+    community: str = "public"
+    version: str = "2c"
+    port: int = 161
+    timeout_s: float = 2.0
+
+
+class SnmpIntervalIn(BaseModel):
+    seconds: int
 
 
 class BackupRequest(BaseModel):
@@ -190,13 +209,10 @@ def delete_user(user_id: int, session=Depends(auth.require_user)):
 
 # ---------------------------------------------------------------- Monitoring
 @app.get("/hosts")
-def host_alive(subnet: str = None, ips: str = None, session=Depends(auth.require_user)):
-    """
-    Ping sweep. Examples:
-    /hosts                                 -> scans default list
-    /hosts?ips=127.0.0.1,8.8.8.8            -> scans specific ips
-    /hosts?subnet=192.168.1.0/24            -> scans whole subnet
-    """
+def host_alive(subnet: str = None, 
+            ips: str = None, 
+            session=Depends(auth.require_user)):
+
     target_ips = nettools.resolve_targets(subnet, ips)
     result = nettools.sweep(target_ips)
 
@@ -230,7 +246,7 @@ def ping_history(ip: str, hours: int = 24, session=Depends(auth.require_user)):
 def monitor_summary(session=Depends(auth.require_user)):
     """Dashboard summary: latest status of every known device."""
     with db_cursor() as cur:
-        cur.execute("SELECT id, name, ip, device_type, vendor FROM devices")
+        cur.execute("SELECT id, name, ip, device_type, vendor, snmp_enabled FROM devices")
         devices = [dict(r) for r in cur.fetchall()]
 
     summary = []
@@ -254,39 +270,71 @@ def monitor_summary(session=Depends(auth.require_user)):
 # ------------------------------------------------------------------ Devices
 @app.get("/devices")
 def list_devices(session=Depends(auth.require_user)):
+    # Explicit columns: the stored SNMP community string must never be sent to the browser.
     with db_cursor() as cur:
-        cur.execute("SELECT * FROM devices ORDER BY name")
+        cur.execute(
+            "SELECT id, name, ip, device_type, vendor, ssh_port, tags, notes, created_at, "
+            "snmp_enabled, snmp_version, snmp_port, (snmp_community != '') AS has_snmp_community "
+            "FROM devices ORDER BY name"
+        )
         return [dict(r) for r in cur.fetchall()]
+
+
+def _check_snmp_settings(device: DeviceIn):
+    if device.snmp_version not in ("1", "2c"):
+        raise HTTPException(status_code=400, detail="snmp_version must be '1' or '2c'")
+    if not 1 <= device.snmp_port <= 65535:
+        raise HTTPException(status_code=400, detail="snmp_port must be between 1 and 65535")
 
 
 @app.post("/devices")
 def add_device(device: DeviceIn, session=Depends(auth.require_user)):
+    is_admin = session["role"] == "admin"
+    if is_admin:
+        _check_snmp_settings(device)
+    # Non-admins can add devices but cannot configure SNMP (it stores a credential).
+    snmp_values = (
+        (int(device.snmp_enabled), device.snmp_community or "", device.snmp_version, device.snmp_port)
+        if is_admin else (0, "", "2c", 161)
+    )
     try:
         with db_cursor() as cur:
             cur.execute(
-                "INSERT INTO devices (name, ip, device_type, vendor, ssh_port, tags, notes) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO devices (name, ip, device_type, vendor, ssh_port, tags, notes, "
+                "snmp_enabled, snmp_community, snmp_version, snmp_port) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (device.name, device.ip, device.device_type, device.vendor,
-                 device.ssh_port, device.tags, device.notes),
+                 device.ssh_port, device.tags, device.notes, *snmp_values),
             )
             new_id = cur.lastrowid
     except Exception:
         raise HTTPException(status_code=409, detail="a device with this IP already exists")
     auth.log_action(session["username"], "add_device", f"{device.name} ({device.ip})")
+    if snmp_values[0]:
+        snmp_poller.trigger_poll()
     return {"ok": True, "id": new_id}
 
 
 @app.put("/devices/{device_id}")
 def update_device(device_id: int, device: DeviceIn, session=Depends(auth.require_user)):
+    is_admin = session["role"] == "admin"
+    fields = "name=?, ip=?, device_type=?, vendor=?, ssh_port=?, tags=?, notes=?"
+    params = [device.name, device.ip, device.device_type, device.vendor,
+              device.ssh_port, device.tags, device.notes]
+    if is_admin:
+        _check_snmp_settings(device)
+        fields += ", snmp_enabled=?, snmp_version=?, snmp_port=?"
+        params += [int(device.snmp_enabled), device.snmp_version, device.snmp_port]
+        if device.snmp_community is not None and device.snmp_community != "":
+            fields += ", snmp_community=?"
+            params.append(device.snmp_community)
+    params.append(device_id)
     with db_cursor() as cur:
-        cur.execute(
-            "UPDATE devices SET name=?, ip=?, device_type=?, vendor=?, ssh_port=?, tags=?, notes=? "
-            "WHERE id=?",
-            (device.name, device.ip, device.device_type, device.vendor,
-             device.ssh_port, device.tags, device.notes, device_id),
-        )
+        cur.execute(f"UPDATE devices SET {fields} WHERE id=?", params)
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="device not found")
+    if is_admin and device.snmp_enabled:
+        snmp_poller.trigger_poll()  # pick up changed settings straight away
     return {"ok": True}
 
 
@@ -324,6 +372,114 @@ def subnet_calc(cidr: str, session=Depends(auth.require_user)):
         return nettools.subnet_info(cidr)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/tools/snmp")
+def snmp_query(request: SnmpQuery, session=Depends(auth.require_user)):
+    """One-off SNMP query of any host (community comes in the body so it never
+    lands in URLs or access logs, and it is never stored or audit-logged)."""
+    if request.version not in ("1", "2c"):
+        raise HTTPException(status_code=400, detail="version must be '1' or '2c' (SNMPv3 is not supported)")
+    if not 1 <= request.port <= 65535:
+        raise HTTPException(status_code=400, detail="port must be between 1 and 65535")
+    host = request.host.strip()
+    if not host:
+        raise HTTPException(status_code=400, detail="host is required")
+    try:
+        result = snmp.query_host(host, request.community, request.version, request.port,
+                                 timeout_s=max(0.5, min(request.timeout_s, 10.0)))
+    except snmp.SnmpTimeout as e:
+        raise HTTPException(status_code=504, detail=str(e))
+    except snmp.SnmpError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    auth.log_action(session["username"], "snmp_query", f"{host}:{request.port} v{request.version}")
+    return result
+
+
+# --------------------------------------------------- SNMP (cached, automatic)
+def _summarize_snmp(data: dict | None):
+    if not data:
+        return None
+    hr = data["host_resources"]
+    ram = next((s for s in hr["storage"] if s["type"] == "ram"), None)
+    return {
+        "name": data["system"]["name"],
+        "vendor": data["system"]["vendor"],
+        "uptime_human": data["system"]["uptime_human"],
+        "location": data["system"]["location"],
+        "if_total": data["interface_summary"]["total"],
+        "if_up": data["interface_summary"]["up"],
+        "cpu_avg": hr["cpu_avg"],
+        "ram_used_pct": ram["used_pct"] if ram else None,
+        "traffic": data.get("traffic"),
+    }
+
+
+@app.get("/snmp/overview")
+def snmp_overview(session=Depends(auth.require_user)):
+    """Lightweight per-host summary of the latest background SNMP poll."""
+    with db_cursor() as cur:
+        cur.execute("SELECT id, name, ip, device_type FROM devices WHERE snmp_enabled = 1 ORDER BY name")
+        devices = [dict(r) for r in cur.fetchall()]
+
+    hosts = []
+    for d in devices:
+        snap = snmp_poller.load_snapshot(d["id"])
+        with db_cursor() as cur:
+            cur.execute("SELECT alive FROM ping_history WHERE ip = ? ORDER BY checked_at DESC LIMIT 1", (d["ip"],))
+            ping = cur.fetchone()
+        data = snap["data"] if snap else None
+        hosts.append({
+            **d,
+            "ping_status": "UP" if ping and ping["alive"] else ("DOWN" if ping else "UNKNOWN"),
+            "state": "pending" if not snap else ("ok" if snap["ok"] else "error"),
+            "error": snap["error"] if snap else "",
+            "last_attempt": snap["last_attempt"] if snap else None,
+            "collected_at": data["collected_at"] if data else None,
+            "summary": _summarize_snmp(data),
+        })
+    return {"poll_interval_seconds": snmp_poller.get_interval(), "hosts": hosts}
+
+
+@app.get("/snmp/devices/{device_id}")
+def snmp_device_detail(device_id: int, session=Depends(auth.require_user)):
+    """Full latest SNMP snapshot (interfaces, addresses, storage...) for one device."""
+    with db_cursor() as cur:
+        cur.execute("SELECT id, name, ip, device_type, snmp_enabled FROM devices WHERE id = ?", (device_id,))
+        device = cur.fetchone()
+    if not device:
+        raise HTTPException(status_code=404, detail="device not found")
+    snap = snmp_poller.load_snapshot(device_id)
+    return {
+        "device": {k: device[k] for k in ("id", "name", "ip", "device_type", "snmp_enabled")},
+        "state": "pending" if not snap else ("ok" if snap["ok"] else "error"),
+        "error": snap["error"] if snap else "",
+        "last_attempt": snap["last_attempt"] if snap else None,
+        "data": snap["data"] if snap else None,
+    }
+
+
+@app.post("/snmp/poll-now")
+def snmp_poll_now(session=Depends(auth.require_user)):
+    snmp_poller.trigger_poll()
+    return {"ok": True}
+
+
+@app.get("/settings/snmp")
+def get_snmp_settings(session=Depends(auth.require_user)):
+    return {"poll_interval_seconds": snmp_poller.get_interval(),
+            "min": snmp_poller.MIN_INTERVAL_S, "max": snmp_poller.MAX_INTERVAL_S}
+
+
+@app.put("/settings/snmp")
+def set_snmp_settings(request: SnmpIntervalIn, session=Depends(auth.require_user)):
+    auth.require_admin(session)
+    try:
+        seconds = snmp_poller.set_interval(request.seconds)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    auth.log_action(session["username"], "set_snmp_interval", f"{seconds}s")
+    return {"ok": True, "poll_interval_seconds": seconds}
 
 
 # ------------------------------------------------------------------ Backups

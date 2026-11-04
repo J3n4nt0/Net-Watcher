@@ -86,6 +86,37 @@ def init_db():
             )
         """)
 
+        # --- SNMP: per-device settings (migrated in so existing databases keep working)
+        cur.execute("PRAGMA table_info(devices)")
+        existing = {row["name"] for row in cur.fetchall()}
+        for column, ddl in {
+            "snmp_enabled": "INTEGER NOT NULL DEFAULT 0",
+            "snmp_community": "TEXT NOT NULL DEFAULT ''",
+            "snmp_version": "TEXT NOT NULL DEFAULT '2c'",
+            "snmp_port": "INTEGER NOT NULL DEFAULT 161",
+        }.items():
+            if column not in existing:
+                cur.execute(f"ALTER TABLE devices ADD COLUMN {column} {ddl}")
+
+        # Latest SNMP poll result per device (one row each, overwritten every poll)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS snmp_snapshots (
+                device_id INTEGER PRIMARY KEY,
+                collected_at TEXT NOT NULL,
+                ok INTEGER NOT NULL,
+                error TEXT DEFAULT '',
+                data TEXT DEFAULT '',
+                FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
