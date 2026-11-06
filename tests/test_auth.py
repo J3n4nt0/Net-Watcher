@@ -16,7 +16,7 @@ def test_login():
     assert response.status_code == 200
     data = response.json()
     assert data["role"] == "admin"
-    auth_header = {"Authorization" : f"Bearer {data["token"]}"}
+    auth_header = {"Authorization" : f"Bearer {data['token']}"}
 
 def test_me():
     response = client.get("/me" , headers = auth_header)
