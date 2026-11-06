@@ -1,7 +1,6 @@
 version
 prompt
 __pycache__
-Makefile
 test_all.py
 backend/netwatch.db
 v.md
