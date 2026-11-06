@@ -7,7 +7,7 @@ full text every time.
 import difflib
 import hashlib
 
-from database import db_cursor
+from backend.database import db_cursor
 
 try:
     import paramiko

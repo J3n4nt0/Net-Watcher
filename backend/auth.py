@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import Header, HTTPException
 
-from database import db_cursor
+from backend.database import db_cursor
 
 SESSION_LIFETIME_HOURS = 12
 PBKDF2_ITERATIONS = 200_000

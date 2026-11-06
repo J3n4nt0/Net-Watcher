@@ -9,8 +9,8 @@ no external scheduler process to manage.
 import threading
 import time
 
-import nettools
-from database import db_cursor
+from backend import nettools
+from backend.database import db_cursor
 
 DEFAULT_INTERVAL_S = 60
 

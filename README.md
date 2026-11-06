@@ -1,8 +1,7 @@
-# NetWatcher — Network Sysadmin Toolkit
+# NetWatcher 
+Monitor, diagnose, and manage your network infrastructure from a UI.
 
-Monitor, diagnose, and manage your network infrastructure from a single interface.
-
-NetWatcher is a self-hosted web application designed to simplify network infrastructure administration and monitoring.
+NetWatcher is a self-hosted web application designed to manage network infrastructure , monitor health and potential network device failure.
 
 Developed with FastAPI, HTML, CSS, and vanilla JavaScript, NetWatcher brings together several essential tools for system and network administrators, including SNMP monitoring, device inventory, configuration backups, and network diagnostics.
 
@@ -47,9 +46,9 @@ pip install -r requirements.txt --break-system-packages
 ### Login Credentials
 
 Default credentials:
-Field|value
-Username| "admin"
-Password| "admin"
+
+|Username| "admin"|
+|Password| "admin"|
 
 
 ---
@@ -71,4 +70,3 @@ The monitoring features include:
 
 Developed by: Jenny Antonio
 
-NetWatcher — Your network, under control.

@@ -14,14 +14,14 @@ from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-import auth
-import backup
-import commands
-import nettools
-import scheduler
-import snmp
-import snmp_poller
-from database import init_db, db_cursor
+from backend import auth
+from backend import backup
+from backend import commands
+from backend import nettools
+from backend import scheduler
+from backend import snmp
+from backend import snmp_poller
+from backend.database import init_db, db_cursor
 
 app = FastAPI(title="NetWatcher API", version="2.2")
 

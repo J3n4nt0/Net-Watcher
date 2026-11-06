@@ -17,8 +17,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-import snmp
-from database import db_cursor
+from backend import snmp
+from backend.database import db_cursor
 
 DEFAULT_INTERVAL_S = 60
 MIN_INTERVAL_S = 15
